@@ -720,3 +720,17 @@ body.drawer-open .wrap { padding-right: 466px; }
 .live .num { text-align: right; font-variant-numeric: tabular-nums; }
 .live .is-good { color: var(--accent); }
 .live .is-off { color: var(--warn); }
+
+/* 15. AUDIT ---------------------------------------------------------------- */
+.ticks { list-style: none; margin: 0 0 14px; padding: 0; display: grid; gap: 6px; }
+.tick { font: 12px/1.5 var(--mono); color: var(--ink-dim); }
+.tick.is-ok { color: var(--accent); }
+.tick.is-off { color: var(--warn); }
+.audit-grid { display: grid; grid-template-columns: 1.2fr 1fr; gap: 18px; align-items: start; }
+.coverage { width: 100%; border-collapse: collapse; font: 12px/1.5 var(--mono); }
+.coverage caption { caption-side: top; text-align: left; font: 11px/1.5 var(--sans); color: var(--ink-dim); padding-bottom: 8px; }
+.coverage th { text-align: left; font: 11px/1 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-dim); padding: 8px 10px; border-bottom: 1px solid var(--rule); }
+.coverage td { padding: 7px 10px; border-bottom: 1px solid var(--rule-soft); }
+.coverage .l-name { font-family: var(--sans); font-size: 13px; }
+.coverage .num { text-align: right; font-variant-numeric: tabular-nums; }
+@media (max-width: 900px) { .audit-grid { grid-template-columns: 1fr; } }

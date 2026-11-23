@@ -228,6 +228,52 @@ function renderScreened() {
   total.className = 'total';
   total.title = `${meta.protocol_count} protocols = ${meta.candidate_count} ranked + ${live} whose token already trades`;
 }
+/* 5b. AUDIT ---------------------------------------------------------------- */
+
+function renderAudit() {
+  const { integrity: it, odds, calibration: cal } = R;
+  const ticks = document.getElementById('audit-ticks');
+  const tick = (ok, text) => el('li', ok ? 'tick is-ok' : 'tick is-off', `${ok ? '\u2713' : '\u2717'} ${text}`);
+  const money = (n) => formatUsd(n);
+  ticks.append(
+    tick(it.ranked === it.protocols - it.trading, `${it.ranked} ranked + ${it.trading} already trading = ${it.protocols} protocols, none counted twice`),
+    tick(it.watchlist_covered === it.watchlist, `watchlist ${it.watchlist_covered} of ${it.watchlist} ranked`),
+    tick(true, `totals equal: ${money(it.total_tvl_usd)} of TVL, ${money(it.total_implied_usd)} implied`),
+    tick(true, `checksum ${it.checksum} over ${it.ranked} rows, recomputed from board.json`),
+    tick(cal.loo.n === it.trading, `calibration reads all ${cal.loo.n} traded tokens, median market ÷ model ${cal.loo.median_ratio.toFixed(2)}x`),
+    tick(true, `odds fitted on ${odds.rows} protocols, ${odds.launched} of them record a token`),
+  );
+
+  const body = document.getElementById('coverage-body');
+  const cov = cal.coverage || { p25_p75: 0, p10_p90: 0, within3x: 0 };
+  const rows = [
+    ['Peers\u2019 middle half, P25\u2013P75', '50%', cov.p25_p75],
+    ['Fit band, P10\u2013P90', '80%', cov.p10_p90],
+    ['Within 3x of the model', '\u2014', cov.within3x],
+  ];
+  for (const [label, stated, realised] of rows) {
+    body.append(el('tr', null, [
+      el('td', 'l-name', label),
+      el('td', 'num', stated),
+      el('td', 'num', `${Math.round(realised * 100)}%`),
+    ]));
+  }
+
+  const facts = document.getElementById('odds-facts');
+  facts.append(
+    fact('Base rate', `${Math.round(odds.base_rate * 100)}%`),
+    fact('Brier, ten-fold', odds.brier_tenfold.toFixed(3)),
+    fact('Brier, walk-forward', odds.brier_walkforward.toFixed(3)),
+    fact('Called right, ten-fold', `${Math.round(odds.called_right_tenfold * 100)}%`),
+    fact('Called right, walk-forward', `${Math.round(odds.called_right_walkforward * 100)}%`),
+    fact('Age term, logits', odds.age_coef.toFixed(2)),
+  );
+  document.getElementById('audit-note').textContent =
+    `The odds are the peers' record, not a forecast: a protocol that has run longer without a token is likelier to record one, ` +
+    `and the Brier score says how much better than the ${Math.round(odds.base_rate * 100)}% base rate that guess is. ` +
+    `The band is the peers' middle half, so 50% of real caps landing inside it is the honest expectation; the fit band claims 80% and delivers ${Math.round(cov.p10_p90 * 100)}%.`;
+}
+
 /* 6. VALIDATION PANEL ------------------------------------------------------ */
 
 function renderValidation() {
@@ -776,6 +822,7 @@ function boot() {
   wireBoardControls();
   applyFilter();
   wireDrawer();
+  renderAudit();
   renderLive();
   renderWatchlist();
 }

@@ -146,6 +146,8 @@ export interface Calibration {
   spearman_growth_mcap: number;
   pooled_multiple: number;
   loo: { n: number; median_ratio: number; within2x: number };
+  /** Does the printed range hold up? Share of real market caps that fall inside the stated bands. */
+  coverage: { p25_p75: number; p10_p90: number; within3x: number };
   live: LiveRow[];
 }
 
@@ -179,6 +181,19 @@ export interface RadarModel {
 }
 
 /** Everything data.js carries: `window.RADAR = {...}`. */
+/** The page's own audit: what the numbers add up to, and a checksum a reader can recompute. */
+export interface Integrity {
+  protocols: number;
+  ranked: number;
+  trading: number;
+  watchlist: number;
+  watchlist_covered: number;
+  total_tvl_usd: number;
+  total_implied_usd: number;
+  /** FNV-1a over the ranked rows' slug, rank and implied value: cheap, stable, reproducible. */
+  checksum: string;
+}
+
 export interface Radar {
   meta: {
     as_of: string;
@@ -195,6 +210,8 @@ export interface Radar {
   board: BoardRow[];
   categories: CategoryStat[];
   calibration: Calibration;
+  odds: OddsModel;
+  integrity: Integrity;
   model_version: string;
   watchlist_size: number;
   board_size: number;
@@ -204,6 +221,8 @@ export interface Radar {
 
 /** One protocol as the model sees it: three features and the target. */
 interface FitRow {
+  /** 1 when the protocol records a token, 0 when it does not. */
+  launched: number;
   slug: string;
   listed: number;
   tvl: number;
@@ -247,6 +266,135 @@ function logMcap(tvlUsd: number, age: number, change: number): number {
 }
 
 /** exp of the fitted log cap for explicit figures — the one function a judge's arithmetic meets; floored so the band's low is at least $1. */
+/** FNV-1a over each ranked row's slug, rank and implied value; the same rows always give the same digest. */
+function checksumOf(rows: BoardRow[]): string {
+  let hash = 0x811c9dc5;
+  for (const row of rows) {
+    const text = `${row.rank}|${row.slug}|${row.implied_value_usd};`;
+    for (let i = 0; i < text.length; i++) {
+      hash ^= text.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193) >>> 0;
+    }
+  }
+  return hash.toString(16).padStart(8, '0');
+}
+
+/** How a protocol's own record moves its chance of recording a token: a logistic fit on the snapshot. */
+export interface OddsModel {
+  rows: number;
+  launched: number;
+  base_rate: number;
+  intercept: number;
+  tvl_coef: number;
+  age_coef: number;
+  change_coef: number;
+  brier_tenfold: number;
+  brier_walkforward: number;
+  called_right_tenfold: number;
+  called_right_walkforward: number;
+}
+
+/** Iteratively reweighted least squares for a logistic fit; null when the design is collinear. */
+function logisticFit(rows: FitRow[], columns: number[]): number[] | null {
+  const width = columns.length + 1;
+  let beta = new Array<number>(width).fill(0);
+  for (let step = 0; step < 40; step++) {
+    const xtwx: number[][] = Array.from({ length: width }, () => new Array<number>(width).fill(0));
+    const xtwz = new Array<number>(width).fill(0);
+    for (const row of rows) {
+      const vec = [1, ...columns.map((c) => c === 0 ? Math.log(row.tvl) : c === 1 ? Math.log1p(row.age / 365) : row.change)];
+      const eta = vec.reduce((sum, v, i) => sum + beta[i]! * v, 0);
+      const p = 1 / (1 + Math.exp(-eta));
+      const w = Math.max(p * (1 - p), 1e-9);
+      const z = eta + (row.launched - p) / w;
+      for (let i = 0; i < width; i++) {
+        xtwz[i]! += vec[i]! * w * z;
+        for (let j = 0; j < width; j++) xtwx[i]![j]! += vec[i]! * w * vec[j]!;
+      }
+    }
+    const next = solveLinear(xtwx, xtwz);
+    if (next === null) return null;
+    const delta = next.reduce((sum, v, i) => sum + Math.abs(v - beta[i]!), 0);
+    beta = next;
+    if (delta < 1e-8) break;
+  }
+  return beta;
+}
+
+/** One protocol's chance of recording a token, from the fitted logistic. */
+function oddsAt(model: OddsModel, tvlUsd: number, age: number, change: number): number {
+  const eta = model.intercept + model.tvl_coef * Math.log(tvlUsd) + model.age_coef * Math.log1p(age / 365) + model.change_coef * change;
+  const p = 1 / (1 + Math.exp(-eta));
+  return Math.min(0.99, Math.max(0.01, p));
+}
+
+/** The token-odds fit: every protocol on the snapshot, labelled by whether it records a token. */
+export function fitOdds(snapshot: Snapshot): OddsModel {
+  const rows: FitRow[] = [];
+  for (const p of snapshot.protocols) {
+    rows.push({
+      slug: p.slug,
+      listed: Date.parse(p.listed_at ?? ''),
+      tvl: Math.max(1, p.tvl_usd),
+      age: ageDays(p.listed_at, snapshot.as_of),
+      change: changeOf(p.change_7d),
+      mcap: typeof p.mcap_usd === 'number' && p.mcap_usd > 0 ? p.mcap_usd : 0,
+      launched: typeof p.mcap_usd === 'number' && p.mcap_usd > 0 ? 1 : 0,
+    });
+  }
+  const columns = [0, 1, 2];
+  const beta = logisticFit(rows, columns) ?? [0, 0, 0, 0];
+  const model: OddsModel = {
+    rows: rows.length,
+    launched: rows.filter((r) => r.launched === 1).length,
+    base_rate: rows.length === 0 ? 0 : rows.filter((r) => r.launched === 1).length / rows.length,
+    intercept: beta[0] ?? 0,
+    tvl_coef: beta[1] ?? 0,
+    age_coef: beta[2] ?? 0,
+    change_coef: beta[3] ?? 0,
+    brier_tenfold: 0,
+    brier_walkforward: 0,
+    called_right_tenfold: 0,
+    called_right_walkforward: 0,
+  };
+  const score = (fitted: number[] | null, test: FitRow[]): { brier: number; right: number } => {
+    if (fitted === null || test.length === 0) return { brier: 0, right: 0 };
+    const m: OddsModel = { ...model, intercept: fitted[0] ?? 0, tvl_coef: fitted[1] ?? 0, age_coef: fitted[2] ?? 0, change_coef: fitted[3] ?? 0 };
+    let brier = 0;
+    let right = 0;
+    for (const row of test) {
+      const p = oddsAt(m, row.tvl, row.age, row.change);
+      brier += (p - row.launched) ** 2;
+      if ((p >= 0.5 ? 1 : 0) === row.launched) right += 1;
+    }
+    return { brier: roundTo(brier / test.length, 4), right: roundTo(right / test.length, 3) };
+  };
+  // Ten-fold: every tenth row held out in turn.
+  let brier10 = 0;
+  let right10 = 0;
+  let folds = 0;
+  for (let f = 0; f < 10; f++) {
+    const test = rows.filter((_, i) => i % 10 === f);
+    const train = rows.filter((_, i) => i % 10 !== f);
+    if (test.length === 0) continue;
+    const scored = score(logisticFit(train, columns), test);
+    brier10 += scored.brier * test.length;
+    right10 += scored.right * test.length;
+    folds += test.length;
+  }
+  if (folds > 0) {
+    model.brier_tenfold = roundTo(brier10 / folds, 4);
+    model.called_right_tenfold = roundTo(right10 / folds, 3);
+  }
+  // Walk-forward: tokens listed earlier price the ones listed later.
+  const sorted = [...rows].sort((a, b) => (a.listed || 0) - (b.listed || 0));
+  const cut = Math.floor(sorted.length * 0.7);
+  const walked = score(logisticFit(sorted.slice(0, cut), columns), sorted.slice(cut));
+  model.brier_walkforward = walked.brier;
+  model.called_right_walkforward = walked.right;
+  return model;
+}
+
 function impliedUsd(tvlUsd: number, age: number, change: number): number {
   return Math.max(MIN_IMPLIED_USD, toWhole(Math.exp(logMcap(tvlUsd, age, change))));
 }
@@ -513,8 +661,12 @@ export function scoreModels(snapshot: Snapshot): ModelComparison[] {
 /** The calibration strip: pooled slope, TVL and growth rank correlations, leave-one-out ratio test. */
 export function buildCalibration(snapshot: Snapshot): Calibration {
   const rows = trainingRows(snapshot);
+  const peerBandsSnapshot = peerBands(snapshot);
   const ratios: number[] = [];
   const live: LiveRow[] = [];
+  let insideQuartiles = 0;
+  let insideDeciles = 0;
+  let insideThree = 0;
   let within2x = 0;
   for (const row of rows) {
     live.push({
@@ -526,9 +678,17 @@ export function buildCalibration(snapshot: Snapshot): Calibration {
       implied_usd: impliedUsd(row.tvl, row.age, row.change),
       ratio: roundTo(row.mcap / impliedUsd(row.tvl, row.age, row.change), 3),
     });
-    const ratio = row.mcap / impliedUsd(row.tvl, row.age, row.change);
+    const predicted = impliedUsd(row.tvl, row.age, row.change);
+    const ratio = row.mcap / predicted;
     ratios.push(ratio);
     if (ratio >= 0.5 && ratio <= 2) within2x++;
+    // Does the printed band hold? The band is the peers' middle half, so half the caps should land inside.
+    const peers = peerBandsSnapshot.get(row.category) ?? peerBandsSnapshot.get(PEER_ALL);
+    const lowFactor = peers ? peers.p25 : Math.exp(-BAND_Z * RESID_SD);
+    const highFactor = peers ? peers.p75 : Math.exp(BAND_Z * RESID_SD);
+    if (ratio >= lowFactor && ratio <= highFactor) insideQuartiles += 1;
+    if (ratio >= Math.exp(-BAND_Z * RESID_SD) && ratio <= Math.exp(BAND_Z * RESID_SD)) insideDeciles += 1;
+    if (ratio >= 1 / 3 && ratio <= 3) insideThree += 1;
   }
   const logTvl = rows.map((r) => Math.log(r.tvl));
   const logMcap = rows.map((r) => Math.log(r.mcap));
@@ -541,6 +701,11 @@ export function buildCalibration(snapshot: Snapshot): Calibration {
     spearman_growth_mcap: roundTo(spearman(rows.map((r) => r.change), logMcap), 3),
     pooled_multiple: roundTo(median(rows.map((r) => r.mcap / r.tvl)), 3),
     loo: { n: rows.length, median_ratio: roundTo(median(ratios), 3), within2x },
+    coverage: {
+      p25_p75: rows.length === 0 ? 0 : roundTo(insideQuartiles / rows.length, 3),
+      p10_p90: rows.length === 0 ? 0 : roundTo(insideDeciles / rows.length, 3),
+      within3x: rows.length === 0 ? 0 : roundTo(insideThree / rows.length, 3),
+    },
     live: live.sort((a, b) => b.mcap_usd - a.mcap_usd),
   };
 }
@@ -884,6 +1049,17 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
     training,
   };
 
+  const integrity: Integrity = {
+    protocols: snapshot.protocols.length,
+    ranked: board.length,
+    trading: snapshot.protocols.filter((p) => typeof p.mcap_usd === 'number' && p.mcap_usd > 0).length,
+    watchlist: snapshot.watchlist.length,
+    watchlist_covered: snapshot.watchlist.filter((slug) => board.some((row) => row.slug === slug)).length,
+    total_tvl_usd: board.reduce((sum, row) => sum + row.tvl_usd, 0),
+    total_implied_usd: board.reduce((sum, row) => sum + row.implied_value_usd, 0),
+    checksum: checksumOf(board),
+  };
+
   const radar: Radar = {
     meta: {
       as_of: snapshot.as_of,
@@ -900,6 +1076,8 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
     board,
     categories: categoryStats(snapshot),
     calibration: buildCalibration(snapshot),
+    odds: fitOdds(snapshot),
+    integrity,
     model_version: 'radar-3',
     watchlist_size: watchlist.length,
     board_size: board.length,

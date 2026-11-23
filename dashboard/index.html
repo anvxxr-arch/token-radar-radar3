@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pre-Token Radar</title>
+<link rel="stylesheet" href="app.css">
+</head>
+<body>
+
+<!-- 1. MASTHEAD -->
+<header class="masthead">
+  <div class="mast-title">
+    <h1>Pre-Token Radar</h1>
+    <p class="lede">Ranks DeFi protocols that have no token yet by a value implied from their TVL, their age and their seven-day move.</p>
+    <p class="stamp" id="stamp">Loading snapshot</p>
+  </div>
+  <dl class="statstrip" id="statstrip" aria-label="Snapshot figures"></dl>
+</header>
+
+<main class="wrap">
+
+  <!-- 2 + 3. MODEL CARD BESIDE VALIDATION PANEL -->
+  <div class="pair">
+
+    <section class="panel" id="model-card" aria-labelledby="model-h">
+      <h2 id="model-h">Model card</h2>
+      <pre class="equation" id="equation">log_mcap = ...</pre>
+      <dl class="facts" id="model-facts"></dl>
+      <p class="note" id="model-note"></p>
+      <div class="screened" aria-labelledby="screened-h">
+        <h3 id="screened-h">Screened out</h3>
+        <dl class="screened-grid" id="screened"></dl>
+      </div>
+    </section>
+
+    <section class="panel" id="validation" aria-labelledby="validation-h">
+      <h2 id="validation-h">Validation</h2>
+      <div class="table-scroll">
+        <table class="compare">
+          <caption class="sr-only">Four fitted models scored two ways on the 128 training rows</caption>
+          <colgroup>
+            <col class="c-model"><col class="c-feat">
+            <col class="c-num"><col class="c-num"><col class="c-num">
+          </colgroup>
+          <thead>
+            <tr>
+              <th scope="col">Model</th>
+              <th scope="col">Features</th>
+              <th scope="col" class="num">Leave-one-out rank correlation</th>
+              <th scope="col" class="num">Walk-forward rank correlation</th>
+              <th scope="col" class="num">Residual SD</th>
+            </tr>
+          </thead>
+          <tbody id="compare-body"></tbody>
+        </table>
+      </div>
+      <p class="note" id="split-note"></p>
+      <p class="note quiet" id="reason-note"></p>
+    </section>
+
+  </div>
+
+  <!-- 4. CALIBRATION -->
+  <section class="panel" id="calibration" aria-labelledby="cal-h">
+    <h2 id="cal-h">Calibration</h2>
+    <div class="cal-wrap">
+      <canvas id="cal-canvas" role="img" aria-label="Scatter of the 128 training rows: implied value against actual market cap on log axes, with the 1:1 line and the 80% band"></canvas>
+      <div class="cal-side">
+        <dl class="facts" id="cal-facts"></dl>
+        <p class="note" id="cal-note"></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- 5. BOARD -->
+  <section class="panel" id="board" aria-labelledby="board-h">
+    <h2 id="board-h">Board</h2>
+
+    <div class="filterbar">
+      <label class="field">
+        <span class="lbl">Search</span>
+        <input type="search" id="q" autocomplete="off" spellcheck="false" placeholder="name, category, chain">
+      </label>
+      <label class="field">
+        <span class="lbl">Confidence</span>
+        <select id="f-conf"><option value="">All</option></select>
+      </label>
+      <label class="field">
+        <span class="lbl">Category</span>
+        <select id="f-cat"><option value="">All</option></select>
+      </label>
+      <p class="count" id="count" aria-live="polite"></p>
+    </div>
+
+    <div class="table-scroll board-scroll">
+      <table id="board-table" class="board">
+        <caption class="sr-only">Pre-token candidates ranked by implied value, with the 80% band and fit range</caption>
+        <colgroup>
+          <col class="w-rank"><col class="w-name"><col class="w-cat">
+          <col class="w-tvl"><col class="w-age"><col class="w-implied">
+          <col class="w-band"><col class="w-mult"><col class="w-fit">
+        </colgroup>
+        <thead>
+          <tr>
+            <th scope="col" class="num" aria-sort="ascending"><button type="button" class="sort" data-key="rank">Rank</button></th>
+            <th scope="col"><button type="button" class="sort" data-key="name">Protocol</button></th>
+            <th scope="col"><button type="button" class="sort" data-key="category">Category</button></th>
+            <th scope="col" class="num"><button type="button" class="sort" data-key="tvl">TVL</button></th>
+            <th scope="col" class="num"><button type="button" class="sort" data-key="age">Age</button></th>
+            <th scope="col" class="num"><button type="button" class="sort" data-key="implied">Implied value</button></th>
+            <th scope="col" class="num"><button type="button" class="sort" data-key="band">80% band</button></th>
+            <th scope="col" class="num"><button type="button" class="sort" data-key="multiple">Multiple</button></th>
+            <th scope="col" title="high: TVL between the 25th and 75th percentile of the 128 training rows ($10.4M to $98.2M). medium: inside the 10th to 90th ($7.3M to $1.10B). low: outside that range, so the model extrapolates.">
+              <button type="button" class="sort" data-key="confidence">Fit range</button>
+            </th>
+          </tr>
+        </thead>
+        <tbody id="board-body"></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- 7. WATCHLIST -->
+  <section class="panel" id="watchlist" aria-labelledby="watch-h">
+    <h2 id="watch-h">Watchlist</h2>
+    <p class="note" id="watch-note"></p>
+    <ol class="watch" id="watch-body"></ol>
+  </section>
+
+</main>
+
+<!-- 6. DETAIL DRAWER -->
+<aside class="drawer" id="drawer" role="dialog" aria-modal="false" aria-labelledby="d-name" hidden>
+  <div class="drawer-head">
+    <div>
+      <p class="lbl" id="d-kicker">Candidate</p>
+      <h2 id="d-name"></h2>
+      <p class="d-sub" id="d-sub"></p>
+    </div>
+    <button type="button" class="close" id="d-close" aria-label="Close detail panel">Close</button>
+  </div>
+  <div class="drawer-body" id="d-body"></div>
+</aside>
+
+<script src="../data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

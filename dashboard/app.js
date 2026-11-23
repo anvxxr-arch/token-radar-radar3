@@ -142,7 +142,7 @@ function stampDate(iso) {
 /** Runs of the source string, with any protocol dropped so the page names no address. */
 function cleanSource(source) {
   return String(source)
-    .replace(/\s*,?\s*\b(?:https?:\/\/|www\.)\S+/gi, '')
+    .replace(/\s*,?\s*\b(?:[a-z][a-z0-9+.-]*:\/\/|www\.)\S+/gi, '')
     .replace(/\s{2,}/g, ' ')
     .replace(/[,;]\s*$/, '')
     .trim();

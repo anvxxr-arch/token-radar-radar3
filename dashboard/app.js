@@ -70,10 +70,9 @@ function bandLabel(low, high) {
 /** The fit-range chip. Not a probability: it says whether TVL sits in the fitted range. */
 function confidenceChip(level) {
   const key = String(level || '').toLowerCase();
-  const word = key === 'high' ? 'in range' : key === 'medium' ? 'edge' : 'extrapolated';
   const span = document.createElement('span');
   span.className = `chip ${key || 'low'}`;
-  span.textContent = word;
+  span.textContent = key || 'low';
   span.title =
     key === 'high'
       ? 'High: TVL between the 25th and 75th percentile of the 128 training rows ($10.4M to $98.2M).'
@@ -112,6 +111,8 @@ function el(tag, clsOrAttrs, content) {
   if (content != null) {
     if (Array.isArray(content)) {
       for (const c of content) if (c) node.append(c);
+    } else if (content instanceof Node) {
+      node.append(content);
     } else {
       node.textContent = String(content);
     }
@@ -385,7 +386,7 @@ function drawLines(ctx, s, box, lo, hi, hasPoints) {
   ctx.lineWidth = 1;
 }
 
-/** Training points, then the fitted cone for whatever the axes cover. */
+/** The 128 training rows as dots, at implied value against actual market cap. */
 function drawPoints(ctx, s, rows) {
   ctx.fillStyle = 'rgba(110, 231, 168, 0.55)';
   for (const p of rows) {
@@ -448,34 +449,37 @@ function renderCalibration() {
   });
 }
 
-/** Side column and canvas label: point count, and whether this is the real scatter. */
+/** Side column and canvas note: point count, band width, and the share the band covers. */
 function stampCalibration(rows, box) {
   const m = R.model;
   const band = Math.exp(m.BAND_Z * m.RESID_SD);
   const facts = document.getElementById('cal-facts');
   if (!facts.childElementCount) {
-    const loo = R.calibration && R.calibration.loo;
+    const inside = rows.filter((r) => r.actual_usd <= r.implied_usd * band && r.actual_usd >= r.implied_usd / band);
     facts.append(
       fact('Training points', String(rows.length)),
       fact('Band width', `${band.toFixed(2)}x`, true),
       fact('Residual SD', num(m.RESID_SD, 3)),
-      loo ? fact('Within 2x', `${loo.within2x} / ${loo.n}`) : fact('Rank (LOO)', num(R.calibration?.slope, 3)),
+      fact('Inside the band', rows.length ? `${inside.length} of ${rows.length}` : '—'),
     );
   }
   const note = document.getElementById('cal-note');
   note.textContent = rows.length
     ? `Each dot is one of the ${rows.length} protocols the fit used, at its implied value against its actual market cap. ` +
       `The white line is 1:1; the amber lines are the 80% band, ×${band.toFixed(2)} and ÷${band.toFixed(2)}. ` +
-      `Dots at the top left are protocols the equation undervalues, which is why the queue is a research list.`
-    : `The radar object carries no training rows here, so no scatter is drawn. The amber cone is the fitted band only: ` +
+      `Dots above the band are protocols the equation undervalues, which is why this is a research queue.`
+    : `The payload carries no training rows, so no scatter is drawn. The amber cone is the fitted band alone: ` +
       `the region between ×${band.toFixed(2)} and ÷${band.toFixed(2)} of the equation, labelled as such.`;
-  if (!rows.length) {
-    const ctx = document.getElementById('cal-canvas').getContext('2d');
-    ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
-    ctx.fillStyle = '#f5b544';
-    ctx.textAlign = 'left';
-    ctx.fillText('fitted band only — no training rows in this payload', box.x + 8, box.y + 2);
-  }
+  if (!rows.length) labelEmptyPlot(box);
+}
+
+/** Honest label on an empty plot, so the cone is never read as data. */
+function labelEmptyPlot(box) {
+  const ctx = document.getElementById('cal-canvas').getContext('2d');
+  ctx.font = '11px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace';
+  ctx.fillStyle = '#f5b544';
+  ctx.textAlign = 'left';
+  ctx.fillText('fitted band only — no training rows in this payload', box.x + 8, box.y + 4);
 }
 
 /* 8. BOARD: ROWS, SORT, FILTER --------------------------------------------- */
@@ -537,7 +541,16 @@ function buildBoard() {
     rowEls.set(row.slug, tr);
     frag.append(tr);
   }
-  document.getElementById('board-body').append(frag);
+  document.getElementById('board-body').append(frag, emptyRow());
+}
+
+/** The row shown when the filters exclude everything, so the table never reads as broken. */
+function emptyRow() {
+  const td = el('td', { class: 'empty', text: 'No candidate matches these filters. Clear the query or widen the category.' });
+  td.colSpan = 9;
+  const tr = el('tr', 'is-empty', td);
+  tr.hidden = true;
+  return tr;
 }
 
 /** Reorders the existing nodes. No rebuild, no new elements. */
@@ -551,7 +564,9 @@ function applySort(key, dir) {
     return a.rank - b.rank;
   });
   const body = document.getElementById('board-body');
+  const empty = body.querySelector('.is-empty');
   for (const row of sorted) body.append(rowEls.get(row.slug));
+  if (empty) body.append(empty);
 }
 
 /** Mark the visible rows; hidden rows stay in the DOM for sorting. */
@@ -569,6 +584,8 @@ function applyFilter() {
     el('b', null, String(visible)),
     document.createTextNode(` of ${R.board.length} candidates`),
   );
+  const empty = document.querySelector('.is-empty');
+  if (empty) empty.hidden = visible > 0;
 }
 
 /** Debounce wrapper: 120 ms, matching the filter contract. */
@@ -657,7 +674,7 @@ function drawerContent(row) {
 
 function openDrawer(row) {
   if (!lastFocus) lastFocus = document.activeElement;
-  document.getElementById('d-kicker').textContent = `Rank ${row.rank} · ${row.confidence} fit range`;
+  document.getElementById('d-kicker').textContent = `Rank ${row.rank} · fit range ${row.confidence}`;
   document.getElementById('d-name').textContent = row.name;
   document.getElementById('d-sub').textContent = `${row.category} · ${(row.chains || []).join(', ') || 'no chain listed'}`;
   const body = document.getElementById('d-body');

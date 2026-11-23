@@ -53,7 +53,7 @@ const PAGE = 'file://' + path.resolve(__dirname, 'out/dashboard/index.html');
         emoji: /[\u{1F300}-\u{1FAFF}\u{2600}-\u{27BF}]/u.test(document.body.innerText),
       };
     });
-    await page.screenshot({ path: `screenshots/check-${w}.png`, fullPage: false });
+    await page.screenshot({ path: `/tmp/radar-check-${w}.png`, fullPage: false });
     await ctx.close();
   }
 
@@ -121,7 +121,7 @@ const PAGE = 'file://' + path.resolve(__dirname, 'out/dashboard/index.html');
       outline: getComputedStyle(close).outlineColor,
     };
   });
-  await page.screenshot({ path: 'screenshots/check-drawer.png' });
+  await page.screenshot({ path: '/tmp/radar-check-drawer.png' });
   await page.keyboard.press('Escape');
   const closed = await page.evaluate(() => document.getElementById('drawer').hidden);
 

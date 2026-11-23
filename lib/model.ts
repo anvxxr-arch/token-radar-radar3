@@ -434,27 +434,15 @@ function isTrainingRow(p: Protocol): boolean {
 
 /** True when a protocol belongs on the board: it carries no positive market cap. */
 function isCandidate(p: Protocol): boolean {
-  if (typeof p.mcap_usd === 'number' && p.mcap_usd > 0) return false;
-  // A protocol that already lists a ticker or a Coingecko id has a token: not a pre-token target.
-  if (typeof p.symbol === 'string' && p.symbol.trim() !== '') return false;
-  if (typeof p.gecko_id === 'string' && p.gecko_id.trim() !== '') return false;
-  // CEX rows carry an exchange's own token and a TVL the fit never saw; the equation is not for them.
-  if (p.category.trim().toUpperCase() === 'CEX') return false;
-  // Above the training range the equation extrapolates; $2B of TVL is the top of the fitted band.
-  return p.tvl_usd <= CANDIDATE_TVL_CEILING;
+  // The board is every protocol whose token does not trade yet: no screening, no dropped rows.
+  // A row above the fitted TVL range still ranks; the fit-range label says its value is extrapolated.
+  return !(typeof p.mcap_usd === 'number' && p.mcap_usd > 0);
 }
 
-/** Why a pre-token protocol is off the board, by reason. */
-export function screenedCounts(snapshot: Snapshot): { symbol: number; gecko_id: number; cex: number; above_range: number } {
-  const counts = { symbol: 0, gecko_id: 0, cex: 0, above_range: 0 };
-  for (const p of snapshot.protocols) {
-    if (typeof p.mcap_usd === 'number' && p.mcap_usd > 0) continue;
-    if (typeof p.symbol === 'string' && p.symbol.trim() !== '') counts.symbol += 1;
-    else if (typeof p.gecko_id === 'string' && p.gecko_id.trim() !== '') counts.gecko_id += 1;
-    else if (p.category.trim().toUpperCase() === 'CEX') counts.cex += 1;
-    else if (p.tvl_usd > CANDIDATE_TVL_CEILING) counts.above_range += 1;
-  }
-  return counts;
+
+/** Nothing is screened off the board now: the only protocols left out are the ones whose token trades. */
+export function screenedCounts(_snapshot: Snapshot): { symbol: number; gecko_id: number; cex: number; above_range: number } {
+  return { symbol: 0, gecko_id: 0, cex: 0, above_range: 0 };
 }
 
 /** The training rows, in snapshot order. */

@@ -211,25 +211,23 @@ function renderModelCard() {
     `it orders the research queue, and this page says so everywhere the figure appears.`;
 }
 
-/** The screened-out strip: why 293 rows are ranked out of 758 protocols. */
+/** The coverage strip: how the 758 protocols split into the ranked board and the audited live set. */
 function renderScreened() {
   const { meta } = R;
-  const s = meta.screened || {};
+  const live = (R.calibration && R.calibration.live ? R.calibration.live.length : 0);
   const box = document.getElementById('screened');
-  const kept = meta.protocol_count - (meta.screened_total || 0);
   box.append(
-    fact('Holds a ticker', String(s.symbol ?? 0)),
-    fact('Has a CoinGecko id', String(s.gecko_id ?? 0)),
-    fact('Centralised exchange', String(s.cex ?? 0)),
-    fact('Above fitted TVL range', String(s.above_range ?? 0)),
+    fact('Protocols on the snapshot', String(meta.protocol_count)),
+    fact('Token already trades', String(live)),
     fact('Ranked on the board', String(meta.candidate_count)),
-    fact(`Screened out of ${meta.protocol_count}`, String(meta.screened_total ?? 0)),
+    fact('Rows dropped for a ticker', '0'),
+    fact('Rows dropped for a chain id', '0'),
+    fact('Rows dropped for TVL', '0'),
   );
   const total = box.lastChild;
   total.className = 'total';
-  total.title = `${meta.protocol_count} protocols minus ${meta.screened_total} screened = ${kept} ranked`;
+  total.title = `${meta.protocol_count} protocols = ${meta.candidate_count} ranked + ${live} whose token already trades`;
 }
-
 /* 6. VALIDATION PANEL ------------------------------------------------------ */
 
 function renderValidation() {

@@ -26,15 +26,11 @@ const state = {
   cat: '',
   key: 'rank',
   dir: 'asc',
-  lower: [],
   active: null,
 };
 
 /** Board row -> its <tr>, filled once during build. */
 const rowEls = new Map();
-
-/** Live handle to the canvas draw, so resize can redraw without re-reading data. */
-let redrawCalibration = () => {};
 
 /* 2. FORMATTING HELPERS ---------------------------------------------------- */
 
@@ -87,7 +83,7 @@ function confidenceChip(level) {
   return span;
 }
 
-/** Multiplier with one decimal and a trailing x. */
+/** Multiplier with two decimals and a trailing x. */
 function multipleLabel(n) {
   const v = Number(n);
   return Number.isFinite(v) ? `${v.toFixed(2)}x` : '—';
@@ -366,7 +362,7 @@ function drawLines(ctx, s, box, lo, hi, hasPoints) {
   const lines = [
     { k: band, color: '#f5b544', dash: [4, 4], label: `+80% edge, ×${band.toFixed(1)}` },
     { k: 1, color: '#dfe4ea', dash: [], label: '1:1' },
-    { k: 1 / band, color: '#f5b544', dash: [4, 4], label: `−80% edge, ÷${band.toFixed(1)}` },
+    { k: 1 / band, color: '#f5b544', dash: [4, 4], label: '' },
   ];
   for (const line of lines) {
     ctx.strokeStyle = line.color;
@@ -377,7 +373,7 @@ function drawLines(ctx, s, box, lo, hi, hasPoints) {
     ctx.lineTo(s.x(hi), s.y(hi * line.k));
     ctx.stroke();
     ctx.setLineDash([]);
-    if (line.k !== band && line.k !== 1) continue;
+    if (!line.label) continue;
     const lx = box.x + box.w - 6;
     const ly = s.y(hi * line.k);
     if (ly > box.y + 10 && ly < box.y + box.h - 4) {
@@ -445,7 +441,6 @@ function renderCalibration() {
     stampCalibration(rows, box);
   };
 
-  redrawCalibration = draw;
   draw();
   window.addEventListener('resize', () => {
     window.clearTimeout(draw.timer);

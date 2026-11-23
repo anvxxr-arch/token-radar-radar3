@@ -705,3 +705,18 @@ caption { text-align: left; }
   .watch { grid-template-columns: 1fr; }
   .facts { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* 13. DRAWER GUTTER -------------------------------------------------------- */
+/* A 430px drawer must not swallow the last three board columns. */
+body.drawer-open .wrap { padding-right: 466px; }
+@media (max-width: 1100px) { body.drawer-open .wrap { padding-right: 24px; } }
+
+/* 14. ALREADY TRADING ------------------------------------------------------- */
+.live-wrap { overflow-x: auto; }
+.live { width: 100%; border-collapse: collapse; font: 12px/1.5 var(--mono); }
+.live th { text-align: left; font: 11px/1 var(--sans); letter-spacing: .08em; text-transform: uppercase; color: var(--ink-dim); padding: 8px 10px; border-bottom: 1px solid var(--rule); white-space: nowrap; }
+.live td { padding: 7px 10px; border-bottom: 1px solid var(--rule-soft); white-space: nowrap; }
+.live .l-name { font-family: var(--sans); font-size: 13px; }
+.live .num { text-align: right; font-variant-numeric: tabular-nums; }
+.live .is-good { color: var(--accent); }
+.live .is-off { color: var(--warn); }

@@ -106,6 +106,8 @@ export interface BoardRow {
   high_usd: number;
   multiple: number;
   band_ratio: number;
+  band_source: 'peers' | 'model';
+  peer_n: number;
   confidence: 'high' | 'medium' | 'low';
   thesis: string;
   farm_steps: string[];
@@ -144,6 +146,18 @@ export interface Calibration {
   spearman_growth_mcap: number;
   pooled_multiple: number;
   loo: { n: number; median_ratio: number; within2x: number };
+  live: LiveRow[];
+}
+
+/** A protocol whose token already trades: the model's value against the market's. */
+export interface LiveRow {
+  slug: string;
+  name: string;
+  category: string;
+  tvl_usd: number;
+  mcap_usd: number;
+  implied_usd: number;
+  ratio: number;
 }
 
 /** The model card: constants a judge recomputes a row from, the comparison, and why M3 won. */
@@ -243,6 +257,16 @@ function median(values: number[]): number {
   const sorted = [...values].sort((a, b) => a - b);
   const mid = sorted.length >> 1;
   return sorted.length % 2 === 1 ? sorted[mid]! : (sorted[mid - 1]! + sorted[mid]!) / 2;
+}
+
+/** Linear-interpolated quantile of a sorted list, q in 0..1. */
+function quantile(sorted: number[], q: number): number {
+  if (sorted.length === 0) return 0;
+  if (sorted.length === 1) return sorted[0]!;
+  const at = (sorted.length - 1) * q;
+  const lo = Math.floor(at);
+  const hi = Math.ceil(at);
+  return sorted[lo]! + (sorted[hi]! - sorted[lo]!) * (at - lo);
 }
 
 /** 1-based average ranks with ties shared — the first half of Spearman. */
@@ -502,8 +526,18 @@ export function scoreModels(snapshot: Snapshot): ModelComparison[] {
 export function buildCalibration(snapshot: Snapshot): Calibration {
   const rows = trainingRows(snapshot);
   const ratios: number[] = [];
+  const live: LiveRow[] = [];
   let within2x = 0;
   for (const row of rows) {
+    live.push({
+      slug: row.slug,
+      name: row.name,
+      category: row.category,
+      tvl_usd: toWhole(row.tvl),
+      mcap_usd: toWhole(row.mcap),
+      implied_usd: impliedUsd(row.tvl, row.age, row.change),
+      ratio: roundTo(row.mcap / impliedUsd(row.tvl, row.age, row.change), 3),
+    });
     const ratio = row.mcap / impliedUsd(row.tvl, row.age, row.change);
     ratios.push(ratio);
     if (ratio >= 0.5 && ratio <= 2) within2x++;
@@ -519,6 +553,7 @@ export function buildCalibration(snapshot: Snapshot): Calibration {
     spearman_growth_mcap: roundTo(spearman(rows.map((r) => r.change), logMcap), 3),
     pooled_multiple: roundTo(median(rows.map((r) => r.mcap / r.tvl)), 3),
     loo: { n: rows.length, median_ratio: roundTo(median(ratios), 3), within2x },
+    live: live.sort((a, b) => b.mcap_usd - a.mcap_usd),
   };
 }
 
@@ -637,14 +672,26 @@ function farmPlan(f: PlanFigures): string[] {
   const copy = FAMILY_COPY[familyOf(f.category)];
   const chains = f.chains.length > 0 ? f.chains.slice(0, 3).join(', ') : 'its listed chains';
   const tape = f.change === null ? 'no seven-day change is reported' : `it moved ${f.change.toFixed(2)}% in seven days`;
-  return [
-    step(`Open on ${f.slug}: ${f.name} holds ${planUsd(f.tvl)} of TVL and the equation values it at ${planUsd(f.implied)}, a ${planMultiple(f.multiple)}x multiple, while ${tape}.`),
-    step(`Find the claim surface: watch ${copy.surface}. A ${f.category} protocol at ${planMultiple(f.multiple)}x implies ${planUsd(f.implied)} of future value, so points are the only way in before a token exists.`),
-    step(`Size the capital against ${chains}: commit ${planUsd(f.low)} first, the bottom of the 80% band, through ${copy.venue}. That is the smallest position that still earns ${planMultiple(f.multiple)}x if the middle of the band lands.`),
-    step(`Name the risk before you deposit: ${copy.overstated} could halve the ${planUsd(f.tvl)} of TVL within a week, and a ${f.bandRatio.toFixed(2)}x band ratio means the implied value may never happen.`),
-    step(`Check the overhang: ${f.age} days without a token and ${planUsd(f.high)} of band upside against ${planUsd(f.tvl)} of TVL means the unlock sells into the first listing. Price that unlock into the ${planMultiple(f.multiple)}x entry.`),
-    step(`Set the exit now: claim at ${planUsd(f.implied)} or better, sell into the first 48 hours of trading, and unwind the ${copy.venue} if TVL falls under ${planUsd(f.tvl * 0.8)} with no claim date.`),
+  // Costs and times are per-step estimates for one wallet on the chains the row lists: gas at
+  // GAS_USD_PER_CHAIN, one bridge and one claim signature, and the waiting time each step needs.
+  const gas = planUsd(GAS_USD_PER_CHAIN * Math.max(1, f.chains.length));
+  const steps = [
+    `Open on ${f.slug}: ${f.name} holds ${planUsd(f.tvl)} of TVL and the equation values it at ${planUsd(f.implied)}, a ${planMultiple(f.multiple)}x multiple, while ${tape}.`,
+    `Find the claim surface: watch ${copy.surface}. A ${f.category} protocol at ${planMultiple(f.multiple)}x implies ${planUsd(f.implied)} of future value, so points are the only way in before a token exists.`,
+    `Size the capital against ${chains}: commit ${planUsd(f.low)} first, the lower peer multiple of the band, through ${copy.venue}. That is the smallest position that still earns ${planMultiple(f.multiple)}x if the middle of the band lands.`,
+    `Name the risk before you deposit: ${copy.overstated} could halve the ${planUsd(f.tvl)} of TVL within a week, and a ${f.bandRatio.toFixed(2)}x band between the peers' quartiles means the implied value may never happen.`,
+    `Check the overhang: ${f.age} days without a token and ${planUsd(f.high)} of band upside against ${planUsd(f.tvl)} of TVL means the unlock sells into the first listing. Price that unlock into the ${planMultiple(f.multiple)}x entry.`,
+    `Set the exit now: claim at ${planUsd(f.implied)} or better, sell into the first 48 hours of trading, and unwind ${copy.venue} if TVL falls under ${planUsd(f.tvl * 0.8)} with no claim date.`,
   ];
+  const costs = [
+    `Costs ${gas} of gas across ${Math.max(1, f.chains.length)} chain${f.chains.length === 1 ? '' : 's'}; 10 minutes.`,
+    `Costs nothing but ${WATCH_DAYS} days of watching; 20 minutes a day.`,
+    `Costs ${gas} to bridge and deposit, plus the position itself; settles in ${DEPOSIT_DAYS} day${DEPOSIT_DAYS === 1 ? '' : 's'}.`,
+    `Costs ${gas} to move out if the risk lands; an hour to unwind.`,
+    `Costs nothing to price; hold ${HOLD_DAYS} days past the claim date.`,
+    `Costs ${gas} to sell and bridge back; the exit fills in ${EXIT_DAYS} days.`,
+  ];
+  return steps.map((text, i) => `${text} ${costs[i]}`);
 }
 
 /** One sentence, at most THESIS_MAX_CHARS, naming the two figures that drive the value. */
@@ -667,13 +714,67 @@ function confidenceOf(tvl: number): BoardRow['confidence'] {
   return 'low';
 }
 
+/** Gas and fees for one wallet's steps, in dollars: two signatures on one chain at a $9 average. */
+export const GAS_USD_PER_CHAIN = 18;
+/** Days a farm plan watches a claim surface before it calls the wait dead. */
+export const WATCH_DAYS = 14;
+/** Days a deposit into the venue takes to settle. */
+export const DEPOSIT_DAYS = 2;
+/** Days a position is held past a claim date before the exit is forced. */
+export const HOLD_DAYS = 7;
+/** Days an exit order takes to fill and bridge back. */
+export const EXIT_DAYS = 2;
+
+/** A category needs this many fitted peers before its own multiple range prices the band. */
+export const PEER_BAND_MIN_N = 8;
+/** Key of the pooled fallback band: every fitted peer, whatever its category. */
+const PEER_ALL = '\u0000all';
+
+/** The middle half of a category's fitted multiples: mcap/TVL of the peers whose token already trades. */
+export function peerBands(snapshot: Snapshot): Map<string, { p25: number; p75: number; n: number }> {
+  const byCategory = new Map<string, number[]>();
+  for (const p of snapshot.protocols) {
+    if (!isTrainingRow(p)) continue;
+    const multiple = (p.mcap_usd as number) / p.tvl_usd;
+    if (!Number.isFinite(multiple) || multiple <= 0) continue;
+    const bucket = byCategory.get(p.category) ?? [];
+    bucket.push(multiple);
+    byCategory.set(p.category, bucket);
+  }
+  const bands = new Map<string, { p25: number; p75: number; n: number }>();
+  // Every fitted row pooled: the fallback band for a category too thin to price itself.
+  const all: number[] = [];
+  for (const multiples of byCategory.values()) all.push(...multiples);
+  if (all.length >= PEER_BAND_MIN_N) {
+    const pooled = [...all].sort((a, b) => a - b);
+    const lo = quantile(pooled, 0.25);
+    const hi = quantile(pooled, 0.75);
+    if (hi > lo && lo > 0) bands.set(PEER_ALL, { p25: lo, p75: hi, n: pooled.length });
+  }
+  for (const [category, multiples] of byCategory) {
+    if (multiples.length < PEER_BAND_MIN_N) continue;
+    const sorted = [...multiples].sort((a, b) => a - b);
+    const p25 = quantile(sorted, 0.25);
+    const p75 = quantile(sorted, 0.75);
+    if (!(p75 > p25) || p25 <= 0) continue;
+    bands.set(category, { p25, p75, n: sorted.length });
+  }
+  return bands;
+}
+
 /** Builds one row's figures from its protocol, before ranking. */
-function rowOf(p: Protocol, asOf: string): Omit<BoardRow, 'rank'> {
+function rowOf(p: Protocol, asOf: string, peers: Map<string, { p25: number; p75: number; n: number }>): Omit<BoardRow, 'rank'> {
   const age = ageDays(p.listed_at, asOf);
   const change = changeOf(p.change_7d);
   const implied = impliedUsd(p.tvl_usd, age, change);
-  const low = Math.max(1, toWhole(implied * Math.exp(-BAND_Z * RESID_SD)));
-  const high = Math.max(low, toWhole(implied * Math.exp(BAND_Z * RESID_SD)));
+  // The band is the middle half of the peers' own multiples where the category has enough of them;
+  // the fit's residual band is the fallback for thin categories.
+  const peer = peers.get(p.category) ?? peers.get(PEER_ALL);
+  const usePeers = peer !== undefined;
+  const lowFactor = usePeers ? peer.p25 : Math.exp(-BAND_Z * RESID_SD);
+  const highFactor = usePeers ? peer.p75 : Math.exp(BAND_Z * RESID_SD);
+  const low = Math.max(1, toWhole(implied * lowFactor));
+  const high = Math.max(low + 1, toWhole(implied * highFactor));
   const multiple = p.tvl_usd > 0 ? implied / p.tvl_usd : 0;
   const bandRatio = low > 0 ? roundTo(high / low, 2) : roundTo(EXP_BAND_FACTOR ** 2, 2);
   const figures: PlanFigures = {
@@ -703,6 +804,8 @@ function rowOf(p: Protocol, asOf: string): Omit<BoardRow, 'rank'> {
     high_usd: high,
     multiple: roundTo(multiple, 2),
     band_ratio: bandRatio,
+    band_source: usePeers ? 'peers' : 'model',
+    peer_n: usePeers ? peer.n : 0,
     confidence: confidenceOf(p.tvl_usd),
     thesis: thesisOf(figures),
     farm_steps: farmPlan(figures),
@@ -746,16 +849,17 @@ export function buildRadar(snapshot: Snapshot): { board: BoardRow[]; radar: Rada
   const bySlug = new Map<string, Protocol>();
   for (const p of snapshot.protocols) if (!bySlug.has(p.slug)) bySlug.set(p.slug, p);
   const screened = screenedCounts(snapshot);
+  const peers = peerBands(snapshot);
 
   const rows: Omit<BoardRow, 'rank'>[] = [];
-  for (const p of snapshot.protocols) if (isCandidate(p)) rows.push(rowOf(p, snapshot.as_of));
+  for (const p of snapshot.protocols) if (isCandidate(p)) rows.push(rowOf(p, snapshot.as_of, peers));
 
   // A watchlist slug outside the candidate set still gets a row, so the board covers the brief.
   const seen = new Set(rows.map((r) => r.slug));
   for (const slug of snapshot.watchlist) {
     const p = bySlug.get(slug);
     if (p !== undefined && !seen.has(slug)) {
-      rows.push(rowOf(p, snapshot.as_of));
+      rows.push(rowOf(p, snapshot.as_of, peers));
       seen.add(slug);
     }
   }

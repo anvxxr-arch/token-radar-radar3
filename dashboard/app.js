@@ -681,6 +681,8 @@ function openDrawer(row) {
   body.replaceChildren(drawerContent(row));
   body.scrollTop = 0;
   drawer.hidden = false;
+  // Keep every board column on screen: the page yields the drawer's width.
+  document.body.classList.add('drawer-open');
 
   if (state.active) rowEls.get(state.active)?.classList.remove('is-active');
   state.active = row.slug;
@@ -689,6 +691,7 @@ function openDrawer(row) {
 }
 
 function closeDrawer() {
+  document.body.classList.remove('drawer-open');
   if (drawer.hidden) return;
   drawer.hidden = true;
   if (state.active) rowEls.get(state.active)?.classList.remove('is-active');
@@ -713,7 +716,7 @@ function renderWatchlist() {
     body.append(
       el('li', null, [
         el('span', 'w-rank', String(row.rank)),
-        el('span', 'w-name', { title: `${row.name} — ${row.category}`, text: row.name }),
+        el('span', { class: 'w-name', title: `${row.name} — ${row.category}`, text: row.name }),
         el('span', 'w-val', formatUsd(row.implied_value_usd)),
       ]),
     );
@@ -721,6 +724,41 @@ function renderWatchlist() {
   const named = list[0] ? ` Top of it: ${list[0].name} at ${formatUsd(list[0].implied_value_usd)}.` : '';
   document.getElementById('watch-note').textContent =
     `The ${list.length} protocols the brief names, in rank order, with the value the equation implies for each.${named}`;
+}
+
+/* 10b. ALREADY TRADING ------------------------------------------------------ */
+
+function renderLive() {
+  const cal = R.calibration || {};
+  const rows = cal.live || [];
+  const body = document.getElementById('live-body');
+  if (!rows.length) {
+    document.getElementById('live-note').textContent = 'No protocol on the snapshot reports a market cap yet.';
+    return;
+  }
+  // Twelve rows spanning the model's own error: the four closest, four around the median, four worst.
+  const sorted = [...rows].sort((a, b) => Math.abs(Math.log(a.ratio)) - Math.abs(Math.log(b.ratio)));
+  const picks = [];
+  for (const i of [0, 1, 2, 3]) if (sorted[i]) picks.push(sorted[i]);
+  const mid = Math.floor(sorted.length / 2);
+  for (const i of [mid - 2, mid - 1, mid, mid + 1]) if (sorted[i]) picks.push(sorted[i]);
+  const worst = sorted.slice(-4);
+  for (const row of worst) if (!picks.includes(row)) picks.push(row);
+  for (const row of picks) {
+    const tr = el('tr', null, [
+      el('td', 'l-name', row.name),
+      el('td', 'num', formatUsd(row.tvl_usd)),
+      el('td', 'num', formatUsd(row.mcap_usd)),
+      el('td', 'num', formatUsd(row.implied_usd)),
+      el('td', 'num', { class: row.ratio >= 0.5 && row.ratio <= 2 ? 'num is-good' : 'num is-off', text: `${row.ratio.toFixed(2)}x` }),
+    ]);
+    body.append(tr);
+  }
+  const loo = cal.loo || { n: rows.length, median_ratio: 0, within2x: 0 };
+  document.getElementById('live-note').textContent =
+    `${rows.length} protocols on the snapshot already trade, and the board leaves them off the ranking for that reason. ` +
+    `The equation can be checked against their market caps: median market ÷ model ${loo.median_ratio.toFixed(2)}x, ` +
+    `${loo.within2x} of ${loo.n} inside 2x either way. The twelve below span that error, closest first, worst last.`;
 }
 
 /* 11. MOUNT ---------------------------------------------------------------- */
@@ -740,6 +778,7 @@ function boot() {
   wireBoardControls();
   applyFilter();
   wireDrawer();
+  renderLive();
   renderWatchlist();
 }
 

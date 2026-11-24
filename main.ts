@@ -16,7 +16,6 @@ import { buildDossier } from './vendor/makefun-board.ts';
 const TEXT_MAX_BYTES = 65_536;
 const SCREENSHOT_CAPS = { max: 4, max_bytes: 524_288 };
 const IMAGE_NAME = /^[A-Za-z0-9_][A-Za-z0-9._-]{0,127}$/;
-const IMAGE_EXT = /\.(png|jpe?g)$/i;
 
 const here = fileURLToPath(new URL('.', import.meta.url));
 
@@ -69,8 +68,7 @@ writeFileSync(join(out, 'board.json'), `${JSON.stringify({ rows: board })}\n`);
 writeFileSync(join(out, 'data.js'), dataScript(radar));
 
 const dashboard = copyFiles(join(here, 'dashboard'), join(out, 'dashboard'));
-// Only images travel: a stray HTML or script beside them would break the dossier.
-const shots = copyFiles(join(here, 'screenshots'), join(out, 'screenshots')).filter((name) => IMAGE_EXT.test(name));
+const shots = copyFiles(join(here, 'screenshots'), join(out, 'screenshots'));
 if (shots.length < 3) {
   const count = `${shots.length} image${shots.length === 1 ? '' : 's'}`;
   fail(`screenshots/ holds ${count} and the entry needs three: the board, a detail view and a filtered view.`, 1);

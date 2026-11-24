@@ -3,173 +3,164 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Pre-Token Radar</title>
+<title>Token Radar — pre-token protocols ranked by implied value</title>
+<meta name="color-scheme" content="dark">
 <link rel="stylesheet" href="app.css">
 </head>
 <body>
+<a class="skip" href="#board">Skip to the board</a>
 
-<!-- MASTHEAD -->
-<header class="masthead">
-  <div class="mast-title">
-    <h1>Pre-Token Radar</h1>
-    <p class="lede">Ranks DeFi protocols that have no token yet by a value implied from their TVL, their age and their seven-day move.</p>
-    <p class="stamp" id="stamp">Loading snapshot</p>
+<header class="mast">
+  <div class="wrap mast-row">
+    <div class="brand">
+      <h1 class="wordmark">Token Radar</h1>
+      <p class="sub" id="subtitle">—</p>
+    </div>
+    <dl class="stat" id="stat">
+      <div><dt>As of</dt><dd id="stat-asof">—</dd></div>
+      <div><dt>Source</dt><dd id="stat-source">—</dd></div>
+      <div><dt>Cohort</dt><dd id="stat-cohort">—</dd></div>
+    </dl>
   </div>
-  <dl class="statstrip" id="statstrip" aria-label="Snapshot figures"></dl>
 </header>
 
-<main class="wrap">
+<main class="wrap" id="board" tabindex="-1">
 
-  <!-- BOARD -->
-  <section class="panel" id="board" aria-labelledby="board-h">
-    <h2 id="board-h">Board</h2>
+  <section class="calib" id="calibration" aria-label="Model calibration">
+    <p class="calib-line" id="calib-line">—</p>
+    <p class="calib-note" id="calib-note">—</p>
+  </section>
 
-    <div class="filterbar">
+  <section class="audit" aria-label="Audit">
+    <ul id="audit"></ul>
+  </section>
+
+  <section class="kpis" id="kpis" aria-label="Board totals"></section>
+
+  <div class="toolbar">
+    <div class="bar-inner">
+      <label class="field grow">
+        <span class="field-label">Search</span>
+        <input id="q" type="search" placeholder="Name, slug, category" autocomplete="off" spellcheck="false">
+      </label>
+      <div class="field chips-field">
+        <span class="field-label" id="cat-label">Category</span>
+        <div class="chips" id="chips" role="group" aria-labelledby="cat-label"></div>
+      </div>
       <label class="field">
-        <span class="lbl">Search</span>
-        <input type="search" id="q" autocomplete="off" spellcheck="false" placeholder="name, category, chain">
+        <span class="field-label">Chain</span>
+        <select id="chain"></select>
       </label>
       <label class="field">
-        <span class="lbl">Confidence</span>
-        <select id="f-conf"><option value="">All</option></select>
+        <span class="field-label">Sort</span>
+        <select id="sort">
+          <option value="implied">Implied value</option>
+          <option value="tvl">TVL</option>
+          <option value="change">7d change</option>
+          <option value="verdict">Farm verdict</option>
+          <option value="age">Age</option>
+          <option value="name">Name</option>
+        </select>
       </label>
-      <label class="field">
-        <span class="lbl">Category</span>
-        <select id="f-cat"><option value="">All</option></select>
+      <button type="button" class="dir" id="dir" aria-label="Sort direction: descending" title="Sort direction">
+        <span aria-hidden="true" id="dir-glyph">↓</span>
+      </button>
+      <label class="switch">
+        <input type="checkbox" id="watch">
+        <span class="track" aria-hidden="true"></span>
+        <span>Watchlist only</span>
       </label>
-      <p class="count" id="count" aria-live="polite"></p>
     </div>
+  </div>
 
-    <div class="table-scroll board-scroll">
-      <table id="board-table" class="board">
-        <caption class="sr-only">Pre-token candidates ranked by implied value, with the 80% band and fit range</caption>
-        <colgroup>
-          <col class="w-rank"><col class="w-name"><col class="w-cat">
-          <col class="w-tvl"><col class="w-age"><col class="w-implied">
-          <col class="w-band"><col class="w-mult"><col class="w-fit">
-        </colgroup>
+  <div class="tabs" role="tablist" aria-label="Views">
+    <button type="button" role="tab" id="tab-board" aria-controls="panel-board" aria-selected="true" data-tab="board">Ranked board</button>
+    <button type="button" role="tab" id="tab-live" aria-controls="panel-live" aria-selected="false" tabindex="-1" data-tab="live">Live tokens</button>
+  </div>
+
+  <section id="panel-board" role="tabpanel" aria-labelledby="tab-board" tabindex="0">
+    <div class="table-note" id="table-note"></div>
+    <div class="table-wrap">
+      <table class="board" id="board-table">
+        <caption class="sr">Pre-token protocols ranked by implied value under the radar-4 model.</caption>
         <thead>
           <tr>
-            <th scope="col" class="num" aria-sort="ascending"><button type="button" class="sort" data-key="rank">Rank</button></th>
-            <th scope="col"><button type="button" class="sort" data-key="name">Protocol</button></th>
-            <th scope="col"><button type="button" class="sort" data-key="category">Category</button></th>
-            <th scope="col" class="num"><button type="button" class="sort" data-key="tvl">TVL</button></th>
-            <th scope="col" class="num"><button type="button" class="sort" data-key="age">Age</button></th>
-            <th scope="col" class="num"><button type="button" class="sort" data-key="implied">Implied value</button></th>
-            <th scope="col" class="num"><button type="button" class="sort" data-key="band">80% band</button></th>
-            <th scope="col" class="num"><button type="button" class="sort" data-key="multiple">Multiple</button></th>
-            <th scope="col" title="high: TVL between the 25th and 75th percentile of the 128 training rows ($10.4M to $98.2M). medium: inside the 10th to 90th ($7.3M to $1.10B). low: outside that range, so the model extrapolates.">
-              <button type="button" class="sort" data-key="confidence">Fit range</button>
-            </th>
+            <th scope="col" class="c-rank" data-sort="rank" aria-sort="none"><button type="button">Rank</button></th>
+            <th scope="col" class="c-name" data-sort="name" aria-sort="none"><button type="button">Protocol</button></th>
+            <th scope="col" class="c-cat" data-sort="category" aria-sort="none"><button type="button">Category</button></th>
+            <th scope="col" class="c-num" data-sort="tvl" aria-sort="none"><button type="button">TVL</button></th>
+            <th scope="col" class="c-num" data-sort="change" aria-sort="none"><button type="button">7d</button></th>
+            <th scope="col" class="c-num c-implied" data-sort="implied" aria-sort="descending"><button type="button">Implied value</button></th>
+            <th scope="col" class="c-verdict" data-sort="verdict" aria-sort="none"><button type="button">Farm verdict</button></th>
+            <th scope="col" class="c-num" data-sort="age" aria-sort="none"><button type="button">Age</button></th>
           </tr>
         </thead>
         <tbody id="board-body"></tbody>
       </table>
+      <p class="empty" id="empty" hidden>No protocol matches these filters.</p>
     </div>
-  </section>
 
-  <!-- MODEL CARD BESIDE VALIDATION PANEL -->
-  <div class="pair">
-
-    <section class="panel" id="model-card" aria-labelledby="model-h">
-      <h2 id="model-h">Model card</h2>
-      <pre class="equation" id="equation">log_mcap = ...</pre>
-      <dl class="facts" id="model-facts"></dl>
-      <p class="note" id="model-note"></p>
-      <div class="screened" aria-labelledby="screened-h">
-        <h3 id="screened-h">Coverage</h3>
-        <dl class="screened-grid" id="screened"></dl>
+    <section class="sandbox" aria-labelledby="sandbox-title">
+      <div class="sandbox-head">
+        <h2 id="sandbox-title">Model sandbox</h2>
+        <button type="button" class="link" id="reset">Reset to house values</button>
+      </div>
+      <p class="note">The page's own arithmetic, run again on the snapshot's figures. This is not the board the entry hands in.</p>
+      <div class="sandbox-grid">
+        <div class="sliders" id="sliders"></div>
+        <div class="sandbox-out">
+          <span class="field-label">Top five under these weights, and where each moves</span>
+          <ol class="sandbox-list" id="sandbox-list"></ol>
+        </div>
       </div>
     </section>
-
-    <section class="panel" id="validation" aria-labelledby="validation-h">
-      <h2 id="validation-h">Validation</h2>
-      <div class="table-scroll">
-        <table class="compare">
-          <caption class="sr-only">Four fitted models scored two ways on the 128 training rows</caption>
-          <colgroup>
-            <col class="c-model"><col class="c-feat">
-            <col class="c-num"><col class="c-num"><col class="c-num">
-          </colgroup>
-          <thead>
-            <tr>
-              <th scope="col">Model</th>
-              <th scope="col">Features</th>
-              <th scope="col" class="num">Leave-one-out rank correlation</th>
-              <th scope="col" class="num">Walk-forward rank correlation</th>
-              <th scope="col" class="num">Residual SD</th>
-            </tr>
-          </thead>
-          <tbody id="compare-body"></tbody>
-        </table>
-      </div>
-      <p class="note" id="split-note"></p>
-      <p class="note quiet" id="reason-note"></p>
-    </section>
-
-  </div>
-
-  <!-- AUDIT -->
-  <section class="panel" id="audit" aria-labelledby="audit-h">
-    <h2 id="audit-h">Audit</h2>
-    <ul class="ticks" id="audit-ticks"></ul>
-    <div class="audit-grid">
-      <table class="coverage">
-        <caption>Is the printed band honest? Share of the 128 real market caps inside each stated range.</caption>
-        <thead><tr><th scope="col">Range</th><th scope="col">Stated</th><th scope="col">Realised</th></tr></thead>
-        <tbody id="coverage-body"></tbody>
-      </table>
-      <dl class="facts" id="odds-facts"></dl>
-    </div>
-    <p class="note" id="audit-note"></p>
   </section>
 
-  <!-- CALIBRATION -->
-  <section class="panel" id="calibration" aria-labelledby="cal-h">
-    <h2 id="cal-h">Calibration</h2>
-    <div class="cal-wrap">
-      <canvas id="cal-canvas" role="img" aria-label="Scatter of the 128 training rows: implied value against actual market cap on log axes, with the 1:1 line and the 80% band"></canvas>
-      <div class="cal-side">
-        <dl class="facts" id="cal-facts"></dl>
-        <p class="note" id="cal-note"></p>
-      </div>
-    </div>
-  </section>
-
-  <!-- ALREADY TRADING -->
-  <section class="panel" id="live" aria-labelledby="live-h">
-    <h2 id="live-h">Already trading</h2>
+  <section id="panel-live" role="tabpanel" aria-labelledby="tab-live" tabindex="0" hidden>
     <p class="note" id="live-note"></p>
-    <div class="live-wrap">
-      <table class="live">
+    <div class="table-wrap">
+      <table class="board live" id="live-table">
+        <caption class="sr">Live-token protocols, by market cap.</caption>
         <thead>
-          <tr><th scope="col">Protocol</th><th scope="col">TVL</th><th scope="col">Market cap</th><th scope="col">Model says</th><th scope="col">Market ÷ model</th></tr>
+          <tr>
+            <th scope="col" class="c-name">Protocol</th>
+            <th scope="col" class="c-cat">Category</th>
+            <th scope="col" class="c-num">TVL</th>
+            <th scope="col" class="c-num">Market cap</th>
+            <th scope="col" class="c-num">MC / TVL</th>
+            <th scope="col" class="c-num">7d</th>
+          </tr>
         </thead>
         <tbody id="live-body"></tbody>
       </table>
     </div>
   </section>
-
-  <!-- WATCHLIST -->
-  <section class="panel" id="watchlist" aria-labelledby="watch-h">
-    <h2 id="watch-h">Watchlist</h2>
-    <p class="note" id="watch-note"></p>
-    <ol class="watch" id="watch-body"></ol>
-  </section>
-
 </main>
 
-<!-- DETAIL DRAWER -->
-<aside class="drawer" id="drawer" role="dialog" aria-modal="false" aria-labelledby="d-name" hidden>
-  <div class="drawer-head">
-    <div>
-      <p class="lbl" id="d-kicker">Candidate</p>
-      <h2 id="d-name"></h2>
-      <p class="d-sub" id="d-sub"></p>
+<footer class="wrap foot">
+  <h2>Model</h2>
+  <p class="formula" id="formula"></p>
+  <p class="note">Every protocol is scored by the same function. No protocol name is special-cased: the class multiple matches substrings of the category, never the name.</p>
+  <p class="mismatch" id="mismatch" hidden></p>
+  <p class="colophon" id="colophon"></p>
+</footer>
+
+<aside class="drawer" id="drawer" role="dialog" aria-modal="false" aria-labelledby="d-title" hidden>
+  <div class="drawer-inner">
+    <div class="drawer-head">
+      <div class="d-head-text">
+        <h2 id="d-title">—</h2>
+        <p class="d-sub" id="d-sub"></p>
+      </div>
+      <button type="button" class="close" id="d-close" aria-label="Close detail">Close</button>
     </div>
-    <button type="button" class="close" id="d-close" aria-label="Close detail panel">Close</button>
+    <div class="d-value">
+      <span class="field-label">Implied value</span>
+      <strong id="d-value">—</strong>
+      <span class="d-value-sub" id="d-value-sub"></span>
+    </div>
+    <div id="d-body"></div>
   </div>
-  <div class="drawer-body" id="d-body"></div>
 </aside>
 
 <script src="../data.js"></script>
